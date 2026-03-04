@@ -543,6 +543,9 @@ twitter
 
       if (result.success) {
         console.log(`✅ Posted tweet`);
+        if (result.data?.postUrl) {
+          console.log(`🔗 ${result.data.postUrl}`);
+        }
       } else {
         console.log(`❌ Failed to post: ${result.error}`);
       }

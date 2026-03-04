@@ -695,12 +695,45 @@ export class TwitterHandler extends BasePlatformHandler {
       }
       await this.clickHuman(SELECTORS.tweetButton);
 
-      await this.delay();
+      // Wait for navigation to the new tweet and capture the URL
+      let tweetUrl = '';
+      try {
+        await page.waitForURL(/\/status\/\d+/, { timeout: 10000 });
+        tweetUrl = page.url();
+        log.info('Tweet posted, URL captured', { tweetUrl });
+      } catch (e) {
+        // Fallback: navigate to own profile to get the latest tweet
+        // Get username from page - look for the profile link in the sidebar
+        const usernameLink = await page.$('a[href*="/"][data-testid="UserAvatar"]');
+        let username = 'home';
+        if (usernameLink) {
+          const href = await usernameLink.getAttribute('href');
+          if (href) {
+            username = href.replace('/', '');
+          }
+        }
+        await page.goto(`${this.baseUrl}/${username}`);
+        await page.waitForTimeout(2000);
+        
+        // Get the first tweet from the profile
+        const firstTweet = await page.$('a[href*="/status/"]');
+        if (firstTweet) {
+          const href = await firstTweet.getAttribute('href');
+          if (href) {
+            tweetUrl = href.startsWith('http') ? href : `${this.baseUrl}${href}`;
+            log.info('Tweet URL captured from profile', { tweetUrl });
+          }
+        } else {
+          log.warn('Could not capture tweet URL from profile');
+        }
+      }
+      
       await this.recordAction('post');
       
       log.info('Successfully posted tweet');
       return this.createResult('post', payload.text.substring(0, 50), startTime, status, {
         commentText: sanitizedText,
+        postUrl: tweetUrl,
         actions: ['📝 Posted'],
       });
     } catch (error) {

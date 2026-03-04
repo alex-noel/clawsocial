@@ -156,6 +156,7 @@ export interface ActionResult {
   timestamp: number;
   duration: number;
   rateLimit?: RateLimitStatus;
+  data?: Record<string, unknown>;
 }
 
 export interface RateLimitStatus {
