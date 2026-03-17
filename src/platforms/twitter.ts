@@ -674,14 +674,22 @@ export class TwitterHandler extends BasePlatformHandler {
       log.info('Posting tweet', { text: payload.text.substring(0, 50) });
 
       // CRITICAL: Navigate to home first to clear any reply/quote context
-      // If we came from a tweet page, X might think we're replying
       await this.navigate(`${this.baseUrl}/home`);
       await this.think();
       await this.pause();
       
-      // Now navigate to compose NEW tweet (not reply)
-      await this.navigate(`${this.baseUrl}/compose/tweet`);
-      await this.think();
+      // Click the NEW TWEET button in sidebar (not reply, not quote - brand new tweet)
+      // This is more reliable than /compose/tweet URL
+      const page = await this.getPage();
+      const newTweetBtn = await page.$(SELECTORS.composeTweet);
+      if (newTweetBtn) {
+        await newTweetBtn.click();
+        await this.think();
+      } else {
+        // Fallback to URL
+        await this.navigate(`${this.baseUrl}/compose/tweet`);
+        await this.think();
+      }
 
       // Wait for tweet input
       if (!(await this.waitForElement(SELECTORS.tweetInput, 10000))) {
@@ -703,50 +711,16 @@ export class TwitterHandler extends BasePlatformHandler {
       await this.clickHuman(SELECTORS.tweetButton);
 
       // Wait for navigation to the new tweet and capture the URL
-      // Increased timeout - X sometimes takes longer to redirect
+      // If this fails, we return empty URL - don't guess with fallback
       let tweetUrl = '';
       try {
         await page.waitForURL(/\/status\/\d+/, { timeout: 30000 });
         tweetUrl = page.url();
         log.info('Tweet posted, URL captured', { tweetUrl });
       } catch (e) {
-        // Fallback: navigate to the logged-in user's profile and get their most recent tweet
-        // NOT home timeline (which shows ANYONE's tweets - that's the bug!)
-        await page.goto(`${this.baseUrl}/home`);
-        await page.waitForTimeout(2000);
-        
-        // Find the logged-in user's profile link in the navigation
-        // Usually in the nav bar with the user's handle
-        const userProfileLink = await page.$('a[href*="/"][data-testid="UserAvatar"], nav a[href*="/"]:first-child');
-        
-        let profileUrl = '';
-        if (userProfileLink) {
-          profileUrl = await userProfileLink.getAttribute('href');
-          if (profileUrl) {
-            profileUrl = profileUrl.startsWith('http') ? profileUrl : `${this.baseUrl}${profileUrl}`;
-            await page.goto(profileUrl);
-            await page.waitForTimeout(2000);
-          }
-        }
-        
-        // If we couldn't find profile, try going to the profile directly
-        if (!profileUrl) {
-          // Try common profile paths
-          await page.goto(`${this.baseUrl}/i/flow/login`);
-          await page.waitForTimeout(2000);
-        }
-        
-        // Get the first tweet from profile (our own tweet)
-        const firstTweet = await page.$('a[href*="/status/"]');
-        if (firstTweet) {
-          const href = await firstTweet.getAttribute('href');
-          if (href) {
-            tweetUrl = href.startsWith('http') ? href : `${this.baseUrl}${href}`;
-            log.info('Tweet URL captured from profile (fallback)', { tweetUrl });
-          }
-        } else {
-          log.warn('Could not capture tweet URL from profile');
-        }
+        // URL capture failed - return empty rather than wrong URL
+        // The tweet WAS posted, we just couldn't get the URL
+        log.warn('Tweet posted but URL capture failed - returning empty URL');
       }
       
       await this.recordAction('post');
